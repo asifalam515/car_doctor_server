@@ -52,10 +52,10 @@ async function run() {
     // i am not looking for a specific data or every data
     // sum data => those fulfill requirement
     app.get("/bookings", async (req, res) => {
-      console.log(req.query.email);
       let query = {};
       // jodi request er query er moddhe email ta thake
       if (req.query?.email) {
+        console.log(req.query.email);
         // email field ke dhore query koro.req.query.email theke pawa email er upre base kore
         query = { email: req.query.email };
       }
