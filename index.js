@@ -1,12 +1,20 @@
 const express = require("express");
 const app = express();
 const port = process.env.PORT || 5000;
-const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
+const {
+  MongoClient,
+  ServerApiVersion,
+  ObjectId,
+  ReturnDocument,
+} = require("mongodb");
 const cors = require("cors");
+var jwt = require("jsonwebtoken");
+const cookieParser = require("cookie-parser");
 require("dotenv").config();
 // middleware
 app.use(express.json());
-app.use(cors());
+app.use(cookieParser());
+app.use(cors({ origin: ["http://localhost:5173"], credentials: true }));
 
 // mongo db
 
@@ -22,7 +30,29 @@ const client = new MongoClient(uri, {
     deprecationErrors: true,
   },
 });
-
+// custom middleware
+const logger = async (req, res, next) => {
+  console.log("called", req.host, req.originalUrl);
+  next();
+};
+const verifyToken = async (req, res, next) => {
+  const token = req.cookies?.token;
+  console.log("value of token in middleware", token);
+  if (!token) {
+    return res.status(401).send({ message: "not authorized" });
+  }
+  jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
+    // error
+    if (err) {
+      console.log(err);
+      return res.status(401).send({ message: "unauhtrozied" });
+    }
+    // if token is valid it would be decoded
+    console.log("value in the token", decoded);
+    req.user = decoded;
+    next();
+  });
+};
 async function run() {
   try {
     await client.connect();
@@ -30,8 +60,24 @@ async function run() {
     const serviceDB = client.db("carDoctor");
     const servicesCollection = serviceDB.collection("serviecs");
     const bookingCollection = client.db("carDoctor").collection("bookings");
-    // api
-    app.get("/services", async (req, res) => {
+    // auth related API
+    app.post("/jwt", logger, async (req, res) => {
+      const user = req.body;
+      console.log(user);
+      // create a token
+      const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, {
+        expiresIn: "1h",
+      });
+      res
+        .cookie("token", token, {
+          httpOnly: true,
+          secure: false,
+        })
+        .send({ success: true });
+    });
+
+    // services relat ed api
+    app.get("/services", logger, async (req, res) => {
       const cursor = servicesCollection.find();
       const result = await cursor.toArray();
       res.send(result);
@@ -51,8 +97,10 @@ async function run() {
     // bookings
     // i am not looking for a specific data or every data
     // sum data => those fulfill requirement
-    app.get("/bookings", async (req, res) => {
+    app.get("/bookings", logger, verifyToken, async (req, res) => {
       let query = {};
+      // console.log("tok tok token", req.cookies.token);
+      console.log("user in the valid token", req.query);
       if (req.query?.email) {
         query = { email: req.query.email };
       }
@@ -65,6 +113,22 @@ async function run() {
       const query = { _id: new ObjectId(id) };
 
       const result = await bookingCollection.deleteOne(query);
+      res.send(result);
+    });
+    // update the info
+    app.patch("/bookings/:id", async (req, res) => {
+      const updateBooking = req.body;
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) };
+      const updateDoc = {
+        $set: {
+          status: updateBooking.status,
+        },
+      };
+
+      const result = await bookingCollection.updateOne(filter, updateDoc);
+
+      console.log(updateBooking);
       res.send(result);
     });
     app.post("/bookings", async (req, res) => {
